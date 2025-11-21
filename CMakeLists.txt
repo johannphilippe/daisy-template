@@ -1,12 +1,19 @@
 cmake_policy(SET CMP0048 NEW)
 cmake_minimum_required(VERSION 3.20)
 
-file(TO_CMAKE_PATH $ENV{HOME} USER_HOME)
-file(TO_CMAKE_PATH $ENV{AUDIO_LIBS_DIR} AUDIO_LIBS_DIR)
+#file(TO_CMAKE_PATH $ENV{HOME} USER_HOME)
+#file(TO_CMAKE_PATH $ENV{AUDIO_LIBS_DIR} AUDIO_LIBS_DIR)
+
+set(LIBDAISY_PATH ${CMAKE_SOURCE_DIR}/lib/libDaisy)
+set(DAISYSP_PATH ${CMAKE_SOURCE_DIR}/lib/DaisySP)
+
+message(STATUS "LIBDAISY_PATH: ${LIBDAISY_PATH}")
+message(STATUS "DAISYSP_PATH: ${DAISYSP_PATH}")
+
 
 # IMPORTANT - CHANGE THIS PATH TO YOUR GCC INSTALLATION
-set(TOOLCHAIN_PREFIX "${USER_HOME}/scoop/apps/gcc-arm-none-eabi-10/current")
-set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/stm32h750xx.cmake)
+set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/gcc-arm-none-eabi-10-2020-q4-major/bin/arm-none-eabi-gcc")
+set(CMAKE_TOOLCHAIN_FILE ${LIBDAISY_PATH}/cmake/toolchains/stm32h750xx.cmake)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -27,7 +34,7 @@ set(PGM_DEVICE interface/stlink.cfg)
 set(OCDFLAGS -f ${PGM_DEVICE} -f target/${CHIPSET}.cfg)
 set(OCD_PROGRAM ${OCD} -s ${OCD_DIR} ${OCDFLAGS} -c "program ${FIRMWARE_NAME}.elf verify reset exit")
 
-add_subdirectory(${AUDIO_LIBS_DIR}/libDaisy ${CMAKE_CURRENT_BINARY_DIR}/libDaisy)
+add_subdirectory(${LIBDAISY_PATH})
 
 # We're compiling libDaisy with -Os to save space
 target_compile_options(daisy
@@ -35,7 +42,7 @@ target_compile_options(daisy
     -Os
 )
 
-add_subdirectory(${AUDIO_LIBS_DIR}/DaisySP ${CMAKE_CURRENT_BINARY_DIR}/DaisySP)
+add_subdirectory(${DAISYSP_PATH}) 
 
 add_executable(${FIRMWARE_NAME} src/main.cpp)
 
