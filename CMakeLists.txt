@@ -4,29 +4,45 @@ cmake_minimum_required(VERSION 3.25)
 #add_definitions(-DFILEIO_ENABLE_CSTDIO_READER)
 add_definitions(-DFILEIO_ENABLE_FATFS_READER)
 
+option(FLASH_TYPE "Type of flashing method" "FLASH")
+
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 
 set(CMAKE_C_COMPILER arm-none-eabi-gcc)
 set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
 
-
-#file(TO_CMAKE_PATH $ENV{HOME} USER_HOME)
-#file(TO_CMAKE_PATH $ENV{AUDIO_LIBS_DIR} AUDIO_LIBS_DIR)
-
 set(LIBDAISY_PATH ${CMAKE_SOURCE_DIR}/lib/libDaisy)
 set(DAISYSP_PATH ${CMAKE_SOURCE_DIR}/lib/DaisySP)
 set(Q_PATH ${CMAKE_SOURCE_DIR}/lib/q)
+
+set(C_DEFS ${C_DEFS} -DUSE_HAL_DRIVER -DSTM32H750xx -DHSE_VALUE=16000000 -DCORE_CM7 -DSTM32H750IB -DARM_MATH_CM7 -DUSE_FULL_LL_DRIVER) 
+set(CFLAGS ${C_DEFS} -g -ggdb -MMD -MP)
+set(CPPFLAGS ${CFLAGS} -fno-exceptions -fasm -finline -finline-functions-called-once -fshort-enums -fno-move-loop-invariants -fno-unwind-tables -fno-rtti -Wno-register)
+
+set(SOURCE src/chordmachine.cpp)
+if(${FLASH_TYPE} STREQUAL "QSPI")
+    set(LINKER_SCRIPT ${LIBDAISY_PATH}/core/STM32H750IB_qspi.lds)
+    set(CPPFLAGS ${CPPFLAGS} -DBOOT_APP)
+    set(SOURCE ${SOURCE} ${LIBDAISY_PATH}/core/startup_stm32h750xx.c)
+elseif(${FLASH_TYPE} STREQUAL "SRAM")
+    set(LINKER_SCRIPT ${LIBDAISY_PATH}/core/STM32H750IB_sram.lds)
+    set(CPPFLAGS ${CPPFLAGS} -DBOOT_APP)
+    set(SOURCE ${SOURCE} ${LIBDAISY_PATH}/core/startup_stm32h750xx.c)
+else()
+    set(LINKER_SCRIPT ${LIBDAISY_PATH}/core/STM32H750IB_flash.lds)
+endif()
+
 
 message(STATUS "LIBDAISY_PATH: ${LIBDAISY_PATH}")
 message(STATUS "DAISYSP_PATH: ${DAISYSP_PATH}")
 
 
 # IMPORTANT - CHANGE THIS PATH TO YOUR GCC INSTALLATION
-#set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/gcc-arm-none-eabi-10-2020-q4-major/bin/arm-none-eabi-gcc")
-set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-gcc")
+set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/gcc-arm-none-eabi-10-2020-q4-major/bin/arm-none-eabi-g++")
+#set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-gcc")
 set(CMAKE_TOOLCHAIN_FILE ${LIBDAISY_PATH}/cmake/toolchains/stm32h750xx.cmake)
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(daisy_program VERSION 0.1 LANGUAGES C CXX ASM)
@@ -41,7 +57,7 @@ set(CHIPSET stm32h7x)
 set(OCD openocd)
 
 # IMPORTANT - CHANGE THIS PATH TO YOUR OPENOCD SCRIPTS FOLDER
-set(OCD_DIR "${USER_HOME}/scoop/apps/openocd/current/share/openocd/scripts")
+set(OCD_DIR "/usr/share/openocd/scripts")
 set(PGM_DEVICE interface/stlink.cfg)
 set(OCDFLAGS -f ${PGM_DEVICE} -f target/${CHIPSET}.cfg)
 set(OCD_PROGRAM ${OCD} -s ${OCD_DIR} ${OCDFLAGS} -c "program ${FIRMWARE_NAME}.elf verify reset exit")
@@ -51,29 +67,43 @@ add_subdirectory(${LIBDAISY_PATH})
 # We're compiling libDaisy with -Os to save space
 target_compile_options(daisy
     PUBLIC
-    -Os
+    -O2
 )
 
 add_subdirectory(${DAISYSP_PATH}) 
 
-set(Q_BUILD_IO OFF)
-set(Q_BUILD_EXAMPLES OFF) 
-set(Q_BUILD_TEST OFF)
+set(Q_BUILD_IO OFF CACHE BOOL "Disable IO" FORCE)
+set(Q_BUILD_EXAMPLES OFF CACHE BOOL "Disable Examples" FORCE) 
+set(Q_BUILD_TEST OFF CACHE BOOL "Disable Tests" FORCE)
 add_subdirectory(${Q_PATH})
-target_compile_options(libq INTERFACE -fconcepts)
+add_compile_definitions(Q_DONT_USE_THREADS)
+#target_compile_options(libq INTERFACE -fconcepts)
+target_compile_options(libq INTERFACE -fexceptions)
 
-add_executable(${FIRMWARE_NAME} src/main.cpp)
+
+add_executable(${FIRMWARE_NAME} ${SOURCE})
+target_compile_options(${FIRMWARE_NAME}
+    PUBLIC 
+    -O2
+    -Wall
+    -Wno-attributes 
+    -Wno-strict-aliasing
+    -Wno-maybe-uninitialized
+    -Wno-missing-attributes
+    -Wno-stringop-overflow
+    -Wno-error=reorder
+    -Wno-error=sign-compare
+    #-fexceptions
+    -DQ_DONT_USE_THREADS=1
+    ${CPPFLAGS}
+    )
 
 target_link_libraries(${FIRMWARE_NAME}
     PUBLIC
     daisy
     DaisySP
-    libq
+    #libq
 )
-
-
-
-set(LINKER_SCRIPT ${LIBDAISY_PATH}/core/STM32H750IB_sram.lds)
 
 set_target_properties(${FIRMWARE_NAME} PROPERTIES
     CXX_STANDARD 17
@@ -90,8 +120,23 @@ target_link_options(${FIRMWARE_NAME} PUBLIC
     -Wl,--warn-common
     -Wl,--warn-section-align
     -Wl,--print-memory-usage
+    --specs=nano.specs
     --specs=nosys.specs
+    -mthumb
+    -Wl,--gc-sections
+    -Wl,--cref
+    -mfpu=fpv5-d16
+    -mfloat-abi=hard
+    -mcpu=cortex-m7
 )
+#MCU = $(CPU) -mthumb $(FPU) $(FLOAT-ABI)
+#-Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections -Wl,--print-memory-usage
+# fpu
+#FPU = -mfpu=fpv5-d16
+
+# float-abi
+#FLOAT-ABI = -mfloat-abi=hard
+#CPU = -mcpu=cortex-m7
 
 add_custom_command(TARGET ${FIRMWARE_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY}
@@ -121,8 +166,17 @@ add_custom_target(flash-st-link
 )
 
 set(FLASH_ADDRESS 0x08000000)
+set(QSPI_ADDRESS 0x90040000)
+set(SRAM_ADDRESS 0x90040000)
 set(TARGET_BIN ${FIRMWARE_NAME}.bin)
 set(USBPID df11)
+set(STMPID df11)
+set(BOOT_BIN dsy_bootloader_v6_3-intdfu-2000ms.bin)
+
+message(STATUS "Firmware name : ${FIRMWARE_NAME}")
+message(STATUS "Target bin : ${TARGET_BIN}")
+
+message(STATUS "COMMAND dfu-util -a 0 -s ${QSPI_ADDRESS}:leave -D ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_BIN} -d ,0483:${USBPID}" )
 
 add_custom_target(flash-dfu
     COMMAND dfu-util -a 0 -s ${FLASH_ADDRESS}:leave -D ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_BIN} -d ,0483:${USBPID}
@@ -131,3 +185,17 @@ add_custom_target(flash-dfu
     VERBATIM
 )
 
+add_custom_target(flash-sram
+    COMMAND dfu-util -a 0 -s ${SRAM_ADDRESS}:leave -D ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_BIN} -d ,0483:${USBPID}
+    DEPENDS ${FIRMWARE_NAME}
+    COMMENT "Flashing ${FIRMWARE_NAME}.elf with DFU"
+    VERBATIM
+)
+
+message(STATUS     "dfu-util -a 0 -s ${FLASH_ADDRESS}:leave -D ${LIBDAISY_PATH}/core/${BOOT_BIN} -d ,0483:${STMPID}" )
+add_custom_target(flash-bootloader
+    COMMAND dfu-util -a 0 -s ${FLASH_ADDRESS}:leave -D ${LIBDAISY_PATH}/core/${BOOT_BIN} -d ,0483:${STMPID}
+    DEPENDS ${FIRMWARE_NAME}
+    COMMENT "Flashing ${FIRMWARE_NAME}.elf with DFU"
+    VERBATIM
+)
