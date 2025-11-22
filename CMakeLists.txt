@@ -1,20 +1,32 @@
 cmake_policy(SET CMP0048 NEW)
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)
+
+#add_definitions(-DFILEIO_ENABLE_CSTDIO_READER)
+add_definitions(-DFILEIO_ENABLE_FATFS_READER)
+
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR arm)
+
+set(CMAKE_C_COMPILER arm-none-eabi-gcc)
+set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
+
 
 #file(TO_CMAKE_PATH $ENV{HOME} USER_HOME)
 #file(TO_CMAKE_PATH $ENV{AUDIO_LIBS_DIR} AUDIO_LIBS_DIR)
 
 set(LIBDAISY_PATH ${CMAKE_SOURCE_DIR}/lib/libDaisy)
 set(DAISYSP_PATH ${CMAKE_SOURCE_DIR}/lib/DaisySP)
+set(Q_PATH ${CMAKE_SOURCE_DIR}/lib/q)
 
 message(STATUS "LIBDAISY_PATH: ${LIBDAISY_PATH}")
 message(STATUS "DAISYSP_PATH: ${DAISYSP_PATH}")
 
 
 # IMPORTANT - CHANGE THIS PATH TO YOUR GCC INSTALLATION
-set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/gcc-arm-none-eabi-10-2020-q4-major/bin/arm-none-eabi-gcc")
+#set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/gcc-arm-none-eabi-10-2020-q4-major/bin/arm-none-eabi-gcc")
+set(TOOLCHAIN_PREFIX "$ENV{HOME}/Documents/Electroacoustique/daisy/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-gcc")
 set(CMAKE_TOOLCHAIN_FILE ${LIBDAISY_PATH}/cmake/toolchains/stm32h750xx.cmake)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(daisy_program VERSION 0.1 LANGUAGES C CXX ASM)
@@ -44,15 +56,24 @@ target_compile_options(daisy
 
 add_subdirectory(${DAISYSP_PATH}) 
 
+set(Q_BUILD_IO OFF)
+set(Q_BUILD_EXAMPLES OFF) 
+set(Q_BUILD_TEST OFF)
+add_subdirectory(${Q_PATH})
+target_compile_options(libq INTERFACE -fconcepts)
+
 add_executable(${FIRMWARE_NAME} src/main.cpp)
 
 target_link_libraries(${FIRMWARE_NAME}
     PUBLIC
     daisy
     DaisySP
+    libq
 )
 
-set(LINKER_SCRIPT ${AUDIO_LIBS_DIR}/libDaisy/core/STM32H750IB_flash.lds)
+
+
+set(LINKER_SCRIPT ${LIBDAISY_PATH}/core/STM32H750IB_sram.lds)
 
 set_target_properties(${FIRMWARE_NAME} PROPERTIES
     CXX_STANDARD 17
@@ -69,6 +90,7 @@ target_link_options(${FIRMWARE_NAME} PUBLIC
     -Wl,--warn-common
     -Wl,--warn-section-align
     -Wl,--print-memory-usage
+    --specs=nosys.specs
 )
 
 add_custom_command(TARGET ${FIRMWARE_NAME} POST_BUILD
